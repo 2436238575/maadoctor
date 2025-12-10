@@ -33,3 +33,6 @@ Thumbs.db
 *.log
 /examples/
 /.claude/
+
+
+report_*.zip

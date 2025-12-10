@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog,
     QTextEdit, QStatusBar, QMessageBox, QProgressBar,
-    QSplitter, QGroupBox
+    QSplitter, QGroupBox,
+    QDialog, QFormLayout, QLineEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 
@@ -15,6 +16,7 @@ from core.solution_manager import SolutionManager
 from core.executor import ScriptExecutor, AnalysisResult, ErrorInfo
 from gui.widgets import ErrorListWidget, SolutionDialog
 
+from core.ai import AIAnalyzer, AIConfig
 
 class AnalysisWorker(QThread):
     """分析线程"""
@@ -45,6 +47,76 @@ class AnalysisWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+class AIAnalysisWorker(QThread):
+    """AI分析线程"""
+    progress_update = pyqtSignal(str)
+    finished = pyqtSignal(object)  # AnalysisResult
+    error = pyqtSignal(str)
+
+    def __init__(self, ai_analyzer: AIAnalyzer, log_dir: str):
+        super().__init__()
+        self.ai_analyzer = ai_analyzer
+        self.log_dir = log_dir
+
+    def run(self):
+        try:
+            self.progress_update.emit("正在执行AI分析...")
+            result = self.ai_analyzer.analyze_with_ai(self.log_dir)
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
+
+class ConfigDialog(QDialog):
+    """AI配置对话框"""
+    def __init__(self, ai_config: AIConfig, parent=None):
+        super().__init__(parent)
+        self.ai_config = ai_config
+        self.setWindowTitle("AI配置")
+        self.setMinimumWidth(400)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form_layout = QFormLayout()
+        
+        self.api_url_edit = QLineEdit()
+        self.api_url_edit.setText(self.ai_config.api_url)
+        self.api_url_edit.setPlaceholderText("https://api.deepseek.com/")
+        form_layout.addRow("API URL:", self.api_url_edit)
+        
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setText(self.ai_config.api_key)
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setPlaceholderText("sk-...")
+        form_layout.addRow("API Key:", self.api_key_edit)
+        
+        self.model_edit = QLineEdit()
+        self.model_edit.setText(self.ai_config.model)
+        self.model_edit.setPlaceholderText("deepseek-chat")
+        form_layout.addRow("模型:", self.model_edit)
+        
+        layout.addLayout(form_layout)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.save_btn = QPushButton("保存")
+        self.save_btn.clicked.connect(self.accept)
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(self.save_btn)
+        button_layout.addWidget(self.cancel_btn)
+        layout.addLayout(button_layout)
+    
+    def get_config(self) -> AIConfig:
+        """获取配置"""
+        return AIConfig(
+            api_url=self.api_url_edit.text().strip() or "https://api.deepseek.com/",
+            api_key=self.api_key_edit.text().strip(),
+            model=self.model_edit.text().strip() or "deepseek-chat"
+        )
 
 class MainWindow(QMainWindow):
     """主窗口"""
@@ -59,6 +131,10 @@ class MainWindow(QMainWindow):
         self.script_manager = ScriptManager()
         self.solution_manager = SolutionManager()
         self.executor = ScriptExecutor()
+        
+        self.ai_config = AIConfig()
+        self.ai_analyzer = AIAnalyzer(self.ai_config)
+        self.use_ai_analysis = False
 
         # 状态
         self._current_zip_path = None
@@ -100,6 +176,37 @@ class MainWindow(QMainWindow):
         self.run_btn.clicked.connect(self._on_run_analysis)
         self.run_btn.setEnabled(False)
         top_layout.addWidget(self.run_btn)
+        
+        # 新增：AI分析按钮
+        self.ai_run_btn = QPushButton("开始AI分析")
+        self.ai_run_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                font-weight: bold;
+                padding: 8px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #0056b3; }
+            QPushButton:disabled { background-color: #ccc; }
+        """)
+        self.ai_run_btn.clicked.connect(self._on_run_ai_analysis)
+        self.ai_run_btn.setEnabled(False)
+        top_layout.addWidget(self.ai_run_btn)
+        
+        self.ai_config_btn = QPushButton("AI配置")
+        self.ai_config_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                font-weight: bold;
+                padding: 8px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover { background-color: #5a6268; }
+        """)
+        self.ai_config_btn.clicked.connect(self._on_open_config)
+        top_layout.addWidget(self.ai_config_btn)
 
         main_layout.addWidget(top_group)
 
@@ -136,6 +243,16 @@ class MainWindow(QMainWindow):
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("就绪 - 请选择ZIP日志包")
+    
+    def _on_open_config(self):
+        """打开AI配置对话框"""
+        dialog = ConfigDialog(self.ai_config, self)
+        if dialog.exec():
+            new_config = dialog.get_config()
+            self.ai_config = new_config
+            self.ai_analyzer.update_config(new_config)
+            
+            QMessageBox.information(self, "成功", "AI配置已保存")
 
     def _on_select_file(self):
         """选择ZIP文件"""
@@ -154,6 +271,7 @@ class MainWindow(QMainWindow):
                 self._current_log_dir = self.log_handler.extract_zip(path)
                 self.statusbar.showMessage(f"已解压，可以开始分析")
                 self.run_btn.setEnabled(True)
+                self.ai_run_btn.setEnabled(True)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"解压失败: {e}")
                 self.run_btn.setEnabled(False)
@@ -183,6 +301,41 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(self._on_analysis_finished)
         self._worker.error.connect(self._on_analysis_error)
         self._worker.start()
+    
+    def _on_run_ai_analysis(self):
+        """执行AI分析"""
+        if not self._current_log_dir:
+            QMessageBox.warning(self, "警告", "请先选择日志文件")
+            return
+        
+        # 检查AI是否配置
+        if not self.ai_analyzer.is_configured():
+            QMessageBox.warning(self, "警告", 
+                "请先配置AI API。\n\n"
+                "请在菜单中选择：工具 -> AI配置\n"
+                "填写API URL和API Key"
+            )
+            return
+
+        # 禁用按钮，显示进度
+        self.run_btn.setEnabled(False)
+        self.ai_run_btn.setEnabled(False)
+        self.select_btn.setEnabled(False)
+        self.progress.setVisible(True)
+        self.error_list.clear_errors()
+        self.summary_text.clear()
+
+        self.statusbar.showMessage("正在执行AI分析...")
+
+        # 启动AI分析线程
+        self._worker = AIAnalysisWorker(
+            self.ai_analyzer,
+            self._current_log_dir
+        )
+        self._worker.progress_update.connect(self._on_progress_update)
+        self._worker.finished.connect(self._on_analysis_finished)
+        self._worker.error.connect(self._on_analysis_error)
+        self._worker.start()
 
     def _on_progress_update(self, message: str):
         """更新进度"""
@@ -193,6 +346,7 @@ class MainWindow(QMainWindow):
         """分析完成"""
         self.progress.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.ai_run_btn.setEnabled(True)
         self.select_btn.setEnabled(True)
 
         # 显示错误列表
@@ -215,6 +369,7 @@ class MainWindow(QMainWindow):
         """分析出错"""
         self.progress.setVisible(False)
         self.run_btn.setEnabled(True)
+        self.ai_run_btn.setEnabled(True)
         self.select_btn.setEnabled(True)
         QMessageBox.critical(self, "分析错误", error_msg)
         self.statusbar.showMessage("分析失败")
