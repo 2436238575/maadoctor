@@ -1,9 +1,10 @@
 """自定义GUI组件"""
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextBrowser, QFrame, QScrollArea
+    QTextBrowser, QFrame, QScrollArea, QDialog
 )
 from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QFont
 
 
 class ErrorCard(QFrame):
@@ -65,26 +66,69 @@ class ErrorCard(QFrame):
             layout.addWidget(detail_label)
 
 
-class SolutionDialog(QWidget):
-    """解决方案显示窗口"""
+class SolutionDialog(QDialog):
+    """解决方案显示窗口 - 独立弹出窗口"""
 
     def __init__(self, error_code: str, html_content: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"解决方案 - {error_code}")
-        self.setMinimumSize(600, 400)
-        self._setup_ui(html_content)
+        self.setMinimumSize(700, 500)
+        self.resize(800, 600)
+        # 设置为独立窗口
+        self.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowCloseButtonHint |
+            Qt.WindowType.WindowMinMaxButtonsHint
+        )
+        self._setup_ui(error_code, html_content)
 
-    def _setup_ui(self, html_content: str):
+    def _setup_ui(self, error_code: str, html_content: str):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
 
+        # 标题
+        title_label = QLabel(f"<h2 style='color: #333;'>📋 {error_code} 解决方案</h2>")
+        layout.addWidget(title_label)
+
+        # Markdown内容显示
         browser = QTextBrowser()
         browser.setOpenExternalLinks(True)
         browser.setHtml(html_content)
-        layout.addWidget(browser)
+        browser.setStyleSheet("""
+            QTextBrowser {
+                background-color: #fafafa;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 12px;
+                font-size: 14px;
+            }
+        """)
+        layout.addWidget(browser, 1)
+
+        # 底部按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
 
         close_btn = QPushButton("关闭")
+        close_btn.setMinimumWidth(100)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
         close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn)
+        btn_layout.addWidget(close_btn)
+
+        layout.addLayout(btn_layout)
 
 
 class ErrorListWidget(QScrollArea):
