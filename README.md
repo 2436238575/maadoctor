@@ -8,7 +8,7 @@
 - **动态脚本拉取**：从GitHub仓库或本地目录加载分析脚本
 - **批量分析**：一键执行所有分析脚本，合并结果
 - **错误编号系统**：每个问题有唯一编号（如E001、E002）
-- **解决方案拉取**：点击按钮获取对应错误的Markdown解决方案
+- **独立解决方案**：每个错误对应独立的Markdown解决方案文件
 - **本地/远程模式**：支持本地测试和远程GitHub两种模式
 
 ## 安装
@@ -36,7 +36,7 @@ python main.py
 编辑 `config.py` 切换本地/远程模式：
 
 ```python
-# 本地测试模式（从examples目录读取）
+# 本地测试模式（从scripts目录读取）
 LOCAL_MODE = True
 
 # 远程模式（从GitHub拉取）
@@ -57,66 +57,81 @@ maadoctor/
 ├── core/
 │   ├── log_handler.py      # ZIP解压处理
 │   ├── script_manager.py   # 脚本拉取管理
-│   ├── solution_manager.py # 解决方案拉取
+│   ├── solution_manager.py # 解决方案管理
 │   └── executor.py         # 脚本执行器
-├── examples/               # 示例脚本和解决方案
-│   ├── scripts/
-│   │   ├── index.json
-│   │   └── maa_analyzer.py
-│   └── solutions/
-│       ├── E001.md
-│       ├── E002.md
-│       └── E003.md
-├── scripts/                # 脚本缓存目录
+├── scripts/                # 分析脚本目录
+│   ├── E001/               # ADB连接失败
+│   │   ├── check.py        # 检测脚本
+│   │   └── solution.md     # 解决方案
+│   ├── E002/               # 截图失败
+│   │   ├── check.py
+│   │   └── solution.md
+│   └── E003/               # 识别超时
+│       ├── check.py
+│       └── solution.md
 └── temp/                   # 临时解压目录
 ```
 
 ## 编写分析脚本
 
-分析脚本需要实现标准接口：
+每个错误对应一个文件夹，包含 `check.py` 和 `solution.md` 两个文件。
+
+### check.py 示例
 
 ```python
+"""E001: ADB连接失败 - 检测脚本"""
+import re
+
 # 脚本元信息
-SCRIPT_NAME = "示例分析脚本"
-SCRIPT_DESC = "分析XXX类型的日志"
+ERROR_CODE = "E001"
+ERROR_TITLE = "ADB连接失败"
+ERROR_DESC = "检测ADB连接相关问题"
 
-def analyze(log_dir: str) -> dict:
-    """
-    分析入口函数
+# 检测模式（正则表达式列表）
+PATTERNS = [
+    r'adb.*connect.*fail',
+    r'cannot connect to',
+    r'connection refused',
+]
 
-    :param log_dir: 解压后的日志目录路径
-    :return: 分析结果字典
+
+def check(content: str) -> dict | None:
     """
-    return {
-        "success": True,  # 是否成功（无错误）
-        "errors": [
-            {
-                "code": "E001",        # 错误编号
-                "title": "连接超时",    # 错误标题
-                "detail": "详细信息",   # 详细描述
-                "has_solution": True   # 是否有解决方案
+    检查日志内容是否包含此错误
+
+    :param content: 日志文件内容
+    :return: 错误信息字典，如果未检测到则返回None
+    """
+    for pattern in PATTERNS:
+        if re.search(pattern, content, re.IGNORECASE):
+            return {
+                "code": ERROR_CODE,
+                "title": ERROR_TITLE,
+                "detail": "检测到ADB连接错误",
+                "has_solution": True
             }
-        ],
-        "summary": "分析摘要"
-    }
+    return None
 ```
 
-## 编写解决方案
-
-解决方案使用Markdown格式，文件名为 `{错误编号}.md`：
+### solution.md 示例
 
 ```markdown
-# E001: 错误标题
+# E001: ADB连接失败
 
 ## 问题描述
-描述问题...
+MAA无法通过ADB连接到模拟器或设备。
 
 ## 解决方案
-### 方案一
-步骤...
 
-### 方案二
-步骤...
+### 方案一：检查模拟器状态
+1. 确保模拟器已完全启动
+2. 确认ADB调试已开启
+
+### 方案二：重启ADB服务
+\`\`\`bash
+adb kill-server
+adb start-server
+\`\`\`
 ```
 
 ## 远程仓库结构
@@ -125,26 +140,14 @@ def analyze(log_dir: str) -> dict:
 
 ```
 your-repo/
-├── scripts/
-│   ├── index.json      # 脚本索引
-│   └── *.py            # 分析脚本
-└── solutions/
-    └── E001.md         # 解决方案文件
-```
-
-`scripts/index.json` 格式：
-
-```json
-{
-    "scripts": [
-        {
-            "name": "脚本名称",
-            "filename": "script.py",
-            "description": "脚本描述",
-            "version": "1.0"
-        }
-    ]
-}
+└── scripts/
+    ├── E001/
+    │   ├── check.py
+    │   └── solution.md
+    ├── E002/
+    │   ├── check.py
+    │   └── solution.md
+    └── ...
 ```
 
 ## 依赖

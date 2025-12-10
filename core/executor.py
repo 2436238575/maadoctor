@@ -2,7 +2,7 @@
 import os
 import sys
 import importlib.util
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List
 from dataclasses import dataclass, field
 
 
@@ -68,19 +68,19 @@ class ScriptExecutor:
     def __init__(self):
         self._loaded_modules: Dict[str, Any] = {}
 
-    def load_script(self, script_path: str) -> Any:
+    def load_script(self, script_path: str, module_name: str = None) -> Any:
         """
         动态加载Python脚本模块
 
         :param script_path: 脚本文件路径
+        :param module_name: 模块名称（可选）
         :return: 加载的模块对象
-        :raises: FileNotFoundError, ImportError
         """
         if not os.path.exists(script_path):
             raise FileNotFoundError(f"脚本文件不存在: {script_path}")
 
-        # 生成模块名
-        module_name = os.path.splitext(os.path.basename(script_path))[0]
+        if module_name is None:
+            module_name = os.path.splitext(os.path.basename(script_path))[0]
 
         # 如果已加载，先卸载
         if module_name in self._loaded_modules:
@@ -100,51 +100,118 @@ class ScriptExecutor:
         self._loaded_modules[module_name] = module
         return module
 
-    def execute(self, module: Any, log_dir: str) -> AnalysisResult:
+    def load_all_scripts(self, scripts_dir: str) -> List[Any]:
         """
-        执行分析脚本
+        加载目录下所有 E*/check.py 脚本
 
-        :param module: 已加载的脚本模块
+        :param scripts_dir: 脚本目录路径
+        :return: 加载的模块列表
+        """
+        modules = []
+        if not os.path.exists(scripts_dir):
+            return modules
+
+        for folder_name in sorted(os.listdir(scripts_dir)):
+            if folder_name.startswith('E') and folder_name[1:].isdigit():
+                check_path = os.path.join(scripts_dir, folder_name, "check.py")
+                if os.path.exists(check_path):
+                    try:
+                        module = self.load_script(check_path, f"check_{folder_name}")
+                        modules.append(module)
+                    except Exception as e:
+                        print(f"加载脚本失败 {folder_name}/check.py: {e}")
+        return modules
+
+    def run_analysis(self, scripts_dir: str, log_dir: str) -> AnalysisResult:
+        """
+        执行所有分析脚本
+
+        :param scripts_dir: 脚本目录路径
         :param log_dir: 日志目录路径
         :return: 分析结果
-        :raises: AttributeError 如果脚本没有analyze函数
         """
-        if not hasattr(module, 'analyze'):
-            raise AttributeError(f"脚本缺少 analyze 函数")
+        errors = []
+        summary_parts = []
 
-        # 调用分析函数
-        result = module.analyze(log_dir)
+        # 查找日志文件
+        log_files = []
+        for root, dirs, files in os.walk(log_dir):
+            for f in files:
+                if f.endswith('.log') or f.endswith('.txt'):
+                    log_files.append(os.path.join(root, f))
 
-        # 转换结果
-        if isinstance(result, dict):
-            return AnalysisResult.from_dict(result)
-        elif isinstance(result, AnalysisResult):
-            return result
-        else:
+        if not log_files:
             return AnalysisResult(
                 success=False,
-                summary=f"脚本返回了无效的结果类型: {type(result)}"
+                errors=[ErrorInfo(
+                    code="E000",
+                    title="未找到日志文件",
+                    detail=f"在 {log_dir} 中未找到 .log 或 .txt 文件",
+                    has_solution=False
+                )],
+                summary="未找到可分析的日志文件"
             )
+
+        summary_parts.append(f"找到 {len(log_files)} 个日志文件")
+
+        # 加载所有脚本
+        modules = self.load_all_scripts(scripts_dir)
+        if not modules:
+            return AnalysisResult(
+                success=False,
+                errors=[ErrorInfo(
+                    code="E000",
+                    title="未找到分析脚本",
+                    detail=f"在 {scripts_dir} 中未找到分析脚本",
+                    has_solution=False
+                )],
+                summary="未找到分析脚本"
+            )
+
+        # 读取所有日志内容
+        all_content = ""
+        for log_file in log_files:
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    all_content += f.read() + "\n"
+            except Exception:
+                continue
+
+        # 对每个脚本执行检查
+        seen_codes = set()
+        for module in modules:
+            if hasattr(module, 'check'):
+                try:
+                    result = module.check(all_content)
+                    if result and result.get("code") not in seen_codes:
+                        seen_codes.add(result["code"])
+                        errors.append(ErrorInfo.from_dict(result))
+                except Exception as e:
+                    print(f"执行脚本检查失败: {e}")
+
+        # 生成摘要
+        if errors:
+            summary_parts.append(f"发现 {len(errors)} 个问题")
+            success = False
+        else:
+            summary_parts.append("未发现明显问题")
+            success = True
+
+        return AnalysisResult(
+            success=success,
+            errors=errors,
+            summary="，".join(summary_parts)
+        )
 
     def get_script_info(self, module: Any) -> Dict[str, str]:
         """
         获取脚本的元信息
 
         :param module: 已加载的脚本模块
-        :return: 包含name和description的字典
+        :return: 包含code, title, description的字典
         """
         return {
-            "name": getattr(module, 'SCRIPT_NAME', '未命名脚本'),
-            "description": getattr(module, 'SCRIPT_DESC', '无描述')
+            "code": getattr(module, 'ERROR_CODE', ''),
+            "title": getattr(module, 'ERROR_TITLE', '未命名'),
+            "description": getattr(module, 'ERROR_DESC', '无描述')
         }
-
-    def run_analysis(self, script_path: str, log_dir: str) -> AnalysisResult:
-        """
-        一站式执行分析：加载脚本并执行
-
-        :param script_path: 脚本文件路径
-        :param log_dir: 日志目录路径
-        :return: 分析结果
-        """
-        module = self.load_script(script_path)
-        return self.execute(module, log_dir)
