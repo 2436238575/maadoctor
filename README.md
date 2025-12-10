@@ -113,27 +113,6 @@ def check(content: str) -> dict | None:
     return None
 ```
 
-### solution.md 示例
-
-```markdown
-# E001: ADB连接失败
-
-## 问题描述
-MAA无法通过ADB连接到模拟器或设备。
-
-## 解决方案
-
-### 方案一：检查模拟器状态
-1. 确保模拟器已完全启动
-2. 确认ADB调试已开启
-
-### 方案二：重启ADB服务
-\`\`\`bash
-adb kill-server
-adb start-server
-\`\`\`
-```
-
 ## 远程仓库结构
 
 如果使用远程模式，GitHub仓库结构应为：
@@ -156,6 +135,61 @@ your-repo/
 - PyQt6
 - requests
 - markdown
+
+## AI Prompt for Writing check.py
+
+Use the following prompt to instruct AI assistants to write check.py scripts:
+
+```
+You are writing a log analysis check script for MaaDoctor. Create a check.py file that detects a specific error pattern in log files.
+
+Requirements:
+1. Define these module-level constants:
+   - ERROR_CODE: string like "E001", "E002", etc. (unique identifier)
+   - ERROR_TITLE: short Chinese title describing the error
+   - ERROR_DESC: brief Chinese description of what this script detects
+   - PATTERNS: list of regex patterns to match in log content
+
+2. Implement the check() function:
+   - Input: content (str) - the full text content of all log files concatenated
+   - Output: dict or None
+   - Return None if no error pattern is detected
+   - Return a dict with these keys if error is detected:
+     {
+       "code": ERROR_CODE,
+       "title": ERROR_TITLE,
+       "detail": "Specific details about what was found (Chinese)",
+       "has_solution": True
+     }
+
+3. Use re.search() with re.IGNORECASE for pattern matching
+4. Only use Python standard library (re, os, json, etc.)
+5. Keep the script simple and focused on one specific error type
+
+Example structure:
+"""EXXX: 错误标题 - 检测脚本"""
+import re
+
+ERROR_CODE = "EXXX"
+ERROR_TITLE = "错误标题"
+ERROR_DESC = "检测XXX相关问题"
+
+PATTERNS = [
+    r'pattern1.*here',
+    r'another.*pattern',
+]
+
+def check(content: str) -> dict | None:
+    for pattern in PATTERNS:
+        if re.search(pattern, content, re.IGNORECASE):
+            return {
+                "code": ERROR_CODE,
+                "title": ERROR_TITLE,
+                "detail": "具体检测到的问题描述",
+                "has_solution": True
+            }
+    return None
+```
 
 ## License
 
