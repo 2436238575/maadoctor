@@ -168,21 +168,12 @@ class ScriptExecutor:
                 summary="未找到分析脚本"
             )
 
-        # 读取所有日志内容
-        all_content = ""
-        for log_file in log_files:
-            try:
-                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    all_content += f.read() + "\n"
-            except Exception:
-                continue
-
-        # 对每个脚本执行检查
+        # 对每个脚本执行检查，传入log_dir让脚本自己决定读取哪些文件
         seen_codes = set()
         for module in modules:
             if hasattr(module, 'check'):
                 try:
-                    result = module.check(all_content)
+                    result = module.check(log_dir)
                     if result and result.get("code") not in seen_codes:
                         seen_codes.add(result["code"])
                         errors.append(ErrorInfo.from_dict(result))

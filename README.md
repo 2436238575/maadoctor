@@ -80,6 +80,7 @@ maadoctor/
 
 ```python
 """E001: ADB连接失败 - 检测脚本"""
+import os
 import re
 
 # 脚本元信息
@@ -94,23 +95,43 @@ PATTERNS = [
     r'connection refused',
 ]
 
+# 目标日志文件（可选，None表示检查所有日志）
+TARGET_LOGS = None  # 例如: ["asst.log", "gui.log"]
 
-def check(content: str) -> dict | None:
+
+def check(log_dir: str) -> dict | None:
     """
-    检查日志内容是否包含此错误
+    检查日志目录中是否包含此错误
 
-    :param content: 日志文件内容
+    :param log_dir: 日志目录路径
     :return: 错误信息字典，如果未检测到则返回None
     """
-    for pattern in PATTERNS:
-        if re.search(pattern, content, re.IGNORECASE):
-            return {
-                "code": ERROR_CODE,
-                "title": ERROR_TITLE,
-                "detail": "检测到ADB连接错误",
-                "has_solution": True
-            }
+    for filename, content in iter_log_files(log_dir):
+        for pattern in PATTERNS:
+            if re.search(pattern, content, re.IGNORECASE):
+                return {
+                    "code": ERROR_CODE,
+                    "title": ERROR_TITLE,
+                    "detail": f"在 {filename} 中检测到ADB连接错误",
+                    "has_solution": True
+                }
     return None
+
+
+def iter_log_files(log_dir: str):
+    """遍历日志文件"""
+    for root, dirs, files in os.walk(log_dir):
+        for filename in files:
+            if TARGET_LOGS and filename not in TARGET_LOGS:
+                continue
+            if not (filename.endswith('.log') or filename.endswith('.txt')):
+                continue
+            filepath = os.path.join(root, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    yield filename, f.read()
+            except Exception:
+                continue
 ```
 
 ## 远程仓库结构
@@ -149,25 +170,29 @@ Requirements:
    - ERROR_TITLE: short Chinese title describing the error
    - ERROR_DESC: brief Chinese description of what this script detects
    - PATTERNS: list of regex patterns to match in log content
+   - TARGET_LOGS: list of target log filenames to check, or None for all logs
+     Example: ["asst.log", "gui.log"] or None
 
 2. Implement the check() function:
-   - Input: content (str) - the full text content of all log files concatenated
+   - Input: log_dir (str) - path to the directory containing extracted log files
    - Output: dict or None
    - Return None if no error pattern is detected
    - Return a dict with these keys if error is detected:
      {
        "code": ERROR_CODE,
        "title": ERROR_TITLE,
-       "detail": "Specific details about what was found (Chinese)",
+       "detail": "在 {filename} 中检测到XXX (Chinese)",
        "has_solution": True
      }
 
-3. Use re.search() with re.IGNORECASE for pattern matching
-4. Only use Python standard library (re, os, json, etc.)
-5. Keep the script simple and focused on one specific error type
+3. Implement iter_log_files() helper to iterate through log files
+4. Use re.search() with re.IGNORECASE for pattern matching
+5. Only use Python standard library (re, os, json, etc.)
+6. Keep the script simple and focused on one specific error type
 
 Example structure:
 """EXXX: 错误标题 - 检测脚本"""
+import os
 import re
 
 ERROR_CODE = "EXXX"
@@ -179,16 +204,33 @@ PATTERNS = [
     r'another.*pattern',
 ]
 
-def check(content: str) -> dict | None:
-    for pattern in PATTERNS:
-        if re.search(pattern, content, re.IGNORECASE):
-            return {
-                "code": ERROR_CODE,
-                "title": ERROR_TITLE,
-                "detail": "具体检测到的问题描述",
-                "has_solution": True
-            }
+TARGET_LOGS = None  # or ["asst.log", "specific.log"]
+
+def check(log_dir: str) -> dict | None:
+    for filename, content in iter_log_files(log_dir):
+        for pattern in PATTERNS:
+            if re.search(pattern, content, re.IGNORECASE):
+                return {
+                    "code": ERROR_CODE,
+                    "title": ERROR_TITLE,
+                    "detail": f"在 {filename} 中检测到问题",
+                    "has_solution": True
+                }
     return None
+
+def iter_log_files(log_dir: str):
+    for root, dirs, files in os.walk(log_dir):
+        for filename in files:
+            if TARGET_LOGS and filename not in TARGET_LOGS:
+                continue
+            if not (filename.endswith('.log') or filename.endswith('.txt')):
+                continue
+            filepath = os.path.join(root, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    yield filename, f.read()
+            except Exception:
+                continue
 ```
 
 ## License
